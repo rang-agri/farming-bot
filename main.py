@@ -122,6 +122,12 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         signature = self.headers.get("X-Line-Signature", "")
 
+        # LINE Verify 요청은 빈 body로 오므로 통과시킴
+        if length == 0:
+            self.send_response(200)
+            self.end_headers()
+            return
+
         if not verify_signature(body, signature):
             self.send_response(403)
             self.end_headers()
