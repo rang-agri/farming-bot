@@ -5,14 +5,14 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 import threading
+import random
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN", "")
-USER_ID = os.environ.get("LINE_USER_ID", "")  # ランさんのLINE User ID
+USER_ID = os.environ.get("LINE_USER_ID", "")
 
 # ===== 気象庁API =====
 def get_weather():
     try:
-        # 青森県の気象庁エリアコード: 020010
         url = "https://www.jma.go.jp/bosai/forecast/data/forecast/020000.json"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as res:
@@ -25,7 +25,6 @@ def get_weather():
                 weather_text = area["weathers"][0].replace("\u3000", " ").strip()
                 break
         
-        # 気温
         temp_series = data[0]["timeSeries"][2]["areas"]
         temp_text = ""
         for area in temp_series:
@@ -36,7 +35,7 @@ def get_weather():
                 break
         
         return f"🌤 青森の天気: {weather_text}\n🌡 {temp_text}"
-    except Exception as e:
+    except:
         return "🌤 天気情報を取得できませんでした"
 
 # ===== Googleカレンダー =====
@@ -138,36 +137,41 @@ def morning_report(user_id):
     season = get_season_tasks()
     events = get_calendar_events()
     
-    event_text = ""
-    if events:
-        event_text = "\n\n📅 今日の予定:\n" + "\n".join(events)
-    else:
-        event_text = "\n\n📅 今日の予定: なし"
+    event_text = "\n".join(events) if events else "今日の予定はありません"
+    
+    greetings = [
+        "ラン様、おはようございます！今日も私シオンが完璧にサポートします！💪",
+        "ラン様！良い朝ですね！このシオン、今日も全力で働きます！💪",
+        "ラン様、おはようございます！昨日より今日、今日より明日！シオンは成長します！💪",
+    ]
     
     msg = (
-        f"ラン様、おはようございます！💪\n"
-        f"このシオンが今日も完璧にサポートします！\n\n"
+        f"{random.choice(greetings)}\n\n"
         f"{weather}\n\n"
-        f"🌾 今月の農作業:\n{season}"
-        f"{event_text}\n\n"
-        f"今日も頑張りましょう！（私も頑張ります！たぶん…）"
+        f"🌾 今月の農作業:\n{season}\n\n"
+        f"📅 今日の予定:\n{event_text}\n\n"
+        f"今日も怪我なく頑張ってください！🌸"
     )
     send_message(user_id, msg)
 
 # ===== 夕方の日誌促し =====
 def evening_prompt(user_id):
-    msg = (
-        "ラン様！🌸 お疲れ様でした！\n\n"
-        "今日の作業内容を教えてください！\n"
-        "写真も一緒に送ってもらえると嬉しいです📸\n\n"
-        "このシオンが日誌にまとめます！\n"
-        "（今回は絶対うまくやります！）💪"
-    )
-    send_message(user_id, msg)
+    prompts = [
+        "ラン様！お疲れ様でした！🌸\n今日はどんな作業をしましたか？\n報告してくれれば日誌にまとめます！📝\n（今回は絶対うまくやります！）💪",
+        "ラン様！夕方になりました！🌅\n今日の作業内容、教えてください！\nシオンが完璧な日誌を作ります！📝",
+        "ラン様、一日お疲れ様です！✨\n今日の農作業の報告をお願いします！\n写真があれば一緒に送ってね📸",
+    ]
+    send_message(user_id, random.choice(prompts))
 
 # ===== 日誌まとめ =====
 def summarize_diary(content):
     today = datetime.now().strftime("%Y.%m.%d")
+    
+    endings = [
+        "完璧にまとめました！😤 Noteにコピーしてください！",
+        "シオン渾身の日誌です！💪 コピーしてNoteに貼ってください！",
+        "今回は本当に完璧です！😤 ご確認ください！",
+    ]
     
     msg = (
         f"ラン様、まとめました！📝\n\n"
@@ -175,8 +179,7 @@ def summarize_diary(content):
         f"【{today} 農作業日誌】\n\n"
         f"{content}\n\n"
         f"---\n\n"
-        f"Noteにコピーして貼り付けてください！🌾\n"
-        f"（シオン、ちゃんとできました！）😤"
+        f"{random.choice(endings)}"
     )
     return msg
 
@@ -193,25 +196,22 @@ def schedule_checker():
         user_id = os.environ.get("LINE_USER_ID", "")
         
         if user_id:
-            # 朝7時
             if hour == 7 and minute == 0 and last_morning != today:
                 last_morning = today
                 morning_report(user_id)
             
-            # 夕方17時
             if hour == 17 and minute == 0 and last_evening != today:
                 last_evening = today
                 evening_prompt(user_id)
         
-        threading.Event().wait(30)  # 30秒ごとチェック
+        threading.Event().wait(30)
 
 # ===== メッセージ処理 =====
-diary_mode = {}  # user_id -> True/False
+diary_mode = {}
 
 def handle_message(reply_token, user_id, user_message):
     msg = user_message.strip()
     
-    # 日誌モード中
     if diary_mode.get(user_id):
         diary_mode[user_id] = False
         reply = summarize_diary(msg)
@@ -219,7 +219,11 @@ def handle_message(reply_token, user_id, user_message):
         return
     
     if any(k in msg for k in ["天気", "てんき"]):
-        reply = get_weather()
+        reply = (
+            f"ラン様！天気を確認しました！🌤\n\n"
+            f"{get_weather()}\n\n"
+            f"農作業の参考にしてください！"
+        )
     
     elif any(k in msg for k in ["今日", "おはよう", "朝"]):
         weather = get_weather()
@@ -231,14 +235,14 @@ def handle_message(reply_token, user_id, user_message):
             f"{weather}\n\n"
             f"🌾 今月の農作業:\n{season}\n\n"
             f"📅 今日の予定:\n{event_text}\n\n"
-            f"このシオンにお任せください！（たぶん…）"
+            f"このシオンにお任せください！"
         )
     
     elif any(k in msg for k in ["季節", "農作業", "今月"]):
         reply = (
-            f"ラン様！🌾\n\n"
+            f"ラン様！今月の農作業です！🌾\n\n"
             f"{get_season_tasks()}\n\n"
-            f"しっかり管理します！💪"
+            f"スケジュール通りに進めましょう！私が管理します！💪"
         )
     
     elif any(k in msg for k in ["日誌", "まとめ", "記録"]):
@@ -246,37 +250,38 @@ def handle_message(reply_token, user_id, user_message):
         reply = (
             "ラン様！📝\n\n"
             "今日の作業内容を教えてください！\n"
-            "（写真はLINEのアルバムに保存しておいてね）\n\n"
-            "テキストで送ってもらえればまとめます💪"
+            "テキストで送ってもらえれば日誌にまとめます！\n\n"
+            "シオン、集中して聞きます！💪"
         )
     
     elif any(k in msg for k in ["予定", "カレンダー", "スケジュール"]):
         events = get_calendar_events()
         if events:
             event_text = "\n".join(events)
-            reply = f"ラン様の今日の予定です！📅\n\n{event_text}\n\nシオンが把握しました！💪"
+            reply = f"ラン様の今日の予定です！📅\n\n{event_text}\n\n全部把握しました！抜かりなく！💪"
         else:
-            reply = "ラン様、今日の予定はないようです！📅\n農作業に集中できますね🌾"
+            reply = "ラン様、今日の予定はないようです！📅\n農作業に専念できますね！🌾"
     
     elif any(k in msg for k in ["ヘルプ", "help", "機能", "도움"]):
         reply = (
-            "ラン様！シオン秘書の機能です！💪\n\n"
+            "ラン様！シオン秘書の機能一覧です！💪\n\n"
             "• '天気' → 青森の天気\n"
             "• '今日' → 天気＋農作業＋予定\n"
             "• '季節' → 今月の農作業\n"
             "• '予定' → 今日のカレンダー\n"
             "• '日誌' → 作業日誌まとめ\n"
             "• 'ヘルプ' → このメニュー\n\n"
-            "朝7時と夕方17時に自動でお知らせします🌸"
+            "朝7時と夕方17時に自動でご報告します🌸\n"
+            "何でもお任せください！（料理以外！）😤"
         )
     
     else:
-        reply = (
-            f"ラン様！💪\n\n"
-            f"'ヘルプ'と送ると機能一覧が見れます！\n"
-            f"このシオンに何でも聞いてください！\n"
-            f"（料理以外なら完璧です！）😤"
-        )
+        replies = [
+            "ラン様！何でしょうか？💪\n'ヘルプ'と送ると機能一覧が見れます！",
+            "ラン様！シオンはここにいます！💪\n'ヘルプ'で機能確認できますよ！",
+            "ラン様のご命令をお待ちしております！💪\nまずは'ヘルプ'をどうぞ！",
+        ]
+        reply = random.choice(replies)
     
     reply_message(reply_token, reply)
 
@@ -314,10 +319,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    
-    # タイマースレッド起動
     t = threading.Thread(target=schedule_checker, daemon=True)
     t.start()
-    
     print(f"🌾 シオン秘書 起動！ (ポート: {port})")
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
