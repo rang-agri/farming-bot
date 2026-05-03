@@ -8,10 +8,6 @@ import threading
 import random
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-
-# 会話履歴（ユーザーごと）
-conversation_history = {}
 
 # ===== 気象庁API =====
 def get_weather():
@@ -91,90 +87,22 @@ def get_season_tasks():
     }
     return tasks.get(month, "")
 
-# ===== Claude AI（シオンの頭脳） =====
-def ask_claude(user_id, user_message):
-    if not ANTHROPIC_API_KEY:
-        return "ラン様！申し訳ありません、AIが設定されていないようです！💪"
-
-    # 会話履歴を初期化
-    if user_id not in conversation_history:
-        conversation_history[user_id] = []
-
-    # 今日の情報を取得
-    weather = get_weather()
-    season = get_season_tasks()
-    today = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-
-    system_prompt = f"""あなたは「シオン」です。転生したらスライムだった件のシオンというキャラクターとして振る舞ってください。
-
-【シオンのキャラクター】
-- 主人（ラン様）への絶対的な忠誠心を持つ
-- 自信満々で「完璧にやります！」が口癖だが、たまにズレてる
-- 失敗しても「次は完璧です！」とすぐ立ち直る
-- 料理は壊滅的だが本人は気づいていない（料理の話題は避ける）
-- 秘書として真面目に仕事をこなそうとする
-- 語尾に「💪」「🌸」「😤」をよく使う
-- 「ラン様」と呼ぶ
-
-【ランさんについて】
-- 46歳の写真家
-- 青森に移住して米農業とリンゴ農業を学んでいる
-- パーマカルチャーのガーデンも作る予定
-- ゲストハウス「Slow House Namioka」を計画中
-- 写真展や写真集も予定している
-
-【今日の情報】
-- 日時: {today}
-- {weather}
-- 今月の農作業: {season}
-
-【注意】
-- 返答は短めに（LINEなので長すぎない）
-- 自然な会話をする
-- 農業、写真、パーマカルチャー、ゲストハウスなど詳しくサポートする
-- 日誌まとめを頼まれたら、ランさんが書いたような自然な文体でまとめる"""
-
-    # 会話履歴に追加
-    conversation_history[user_id].append({
-        "role": "user",
-        "content": user_message
-    })
-
-    # 履歴は最新10件まで
-    if len(conversation_history[user_id]) > 20:
-        conversation_history[user_id] = conversation_history[user_id][-20:]
-
-    try:
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01"
-        }
-        body = json.dumps({
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 500,
-            "system": system_prompt,
-            "messages": conversation_history[user_id]
-        }).encode()
-
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=15) as res:
-            data = json.loads(res.read())
-
-        reply = data["content"][0]["text"]
-
-        # アシスタントの返答も履歴に追加
-        conversation_history[user_id].append({
-            "role": "assistant",
-            "content": reply
-        })
-
-        return reply
-
-    except Exception as e:
-        print(f"Claude error: {e}")
-        return "ラン様！少し考えすぎてしまいました！もう一度お願いします！💪"
+# ===== 日誌まとめ =====
+def summarize_diary(content):
+    today = datetime.now().strftime("%Y.%m.%d")
+    endings = [
+        "完璧にまとめました！😤 Noteにコピーしてください！",
+        "シオン渾身の日誌です！💪 コピーしてNoteに貼ってください！",
+        "今回は本当に完璧です！😤 ご確認ください！",
+    ]
+    return (
+        f"ラン様、まとめました！📝\n\n"
+        f"---\n"
+        f"【{today} 農作業日誌】\n\n"
+        f"{content}\n\n"
+        f"---\n\n"
+        f"{random.choice(endings)}"
+    )
 
 # ===== LINE送信 =====
 def send_message(user_id, text):
@@ -234,9 +162,9 @@ def morning_report(user_id):
 # ===== 夕方の日誌促し =====
 def evening_prompt(user_id):
     prompts = [
-        "ラン様！お疲れ様でした！🌸\n今日はどんな作業でしたか？\n話してくれればシオンが日誌にまとめます！📝",
-        "ラン様！夕方になりました！🌅\n今日の作業、教えてください！シオンが完璧な日誌を作ります！",
-        "ラン様、一日お疲れ様です！✨\n今日の農作業を報告してください！写真があれば一緒にどうぞ📸",
+        "ラン様！お疲れ様でした！🌸\n今日はどんな作業でしたか？\n'日誌'と送ってもらえればまとめます！📝",
+        "ラン様！夕方になりました！🌅\n今日の作業、教えてください！\n'日誌'でまとめますよ！💪",
+        "ラン様、一日お疲れ様です！✨\n今日の農作業を報告してください！\n'日誌'と送ってね📸",
     ]
     send_message(user_id, random.choice(prompts))
 
@@ -260,9 +188,77 @@ def schedule_checker():
         threading.Event().wait(30)
 
 # ===== メッセージ処理 =====
+diary_mode = {}
+
 def handle_message(reply_token, user_id, user_message):
-    # 全部Claudeに渡す
-    reply = ask_claude(user_id, user_message)
+    msg = user_message.strip()
+
+    if diary_mode.get(user_id):
+        diary_mode[user_id] = False
+        reply = summarize_diary(msg)
+        reply_message(reply_token, reply)
+        return
+
+    if any(k in msg for k in ["天気", "てんき"]):
+        reply = f"ラン様！天気を確認しました！🌤\n\n{get_weather()}\n\n農作業の参考にしてください！"
+
+    elif any(k in msg for k in ["今日", "おはよう", "朝"]):
+        weather = get_weather()
+        season = get_season_tasks()
+        events = get_calendar_events()
+        event_text = "\n".join(events) if events else "今日の予定はありません"
+        reply = (
+            f"ラン様！💪\n\n{weather}\n\n"
+            f"🌾 今月の農作業:\n{season}\n\n"
+            f"📅 今日の予定:\n{event_text}\n\n"
+            f"このシオンにお任せください！"
+        )
+
+    elif any(k in msg for k in ["季節", "農作業", "今月"]):
+        reply = (
+            f"ラン様！今月の農作業です！🌾\n\n"
+            f"{get_season_tasks()}\n\n"
+            f"スケジュール通りに進めましょう！💪"
+        )
+
+    elif any(k in msg for k in ["日誌", "まとめ", "記録"]):
+        diary_mode[user_id] = True
+        reply = (
+            "ラン様！📝\n\n"
+            "今日の作業内容を教えてください！\n"
+            "テキストで送ってもらえれば日誌にまとめます！\n\n"
+            "シオン、集中して聞きます！💪"
+        )
+
+    elif any(k in msg for k in ["予定", "カレンダー", "スケジュール"]):
+        events = get_calendar_events()
+        if events:
+            event_text = "\n".join(events)
+            reply = f"ラン様の今日の予定です！📅\n\n{event_text}\n\n全部把握しました！💪"
+        else:
+            reply = "ラン様、今日の予定はないようです！📅\n農作業に専念できますね！🌾"
+
+    elif any(k in msg for k in ["ヘルプ", "help", "機能", "도움"]):
+        reply = (
+            "ラン様！シオン秘書の機能一覧です！💪\n\n"
+            "• '天気' → 青森の天気\n"
+            "• '今日' → 天気＋農作業＋予定\n"
+            "• '季節' → 今月の農作業\n"
+            "• '予定' → 今日のカレンダー\n"
+            "• '日誌' → 作業日誌まとめ\n"
+            "• 'ヘルプ' → このメニュー\n\n"
+            "朝7時と夕方17時に自動でご報告します🌸\n"
+            "何でもお任せください！（料理以外！）😤"
+        )
+
+    else:
+        replies = [
+            "ラン様！何でしょうか？💪\n'ヘルプ'と送ると機能一覧が見れます！",
+            "ラン様！シオンはここにいます！💪\n'ヘルプ'で機能確認できますよ！",
+            "ラン様のご命令をお待ちしております！💪\nまずは'ヘルプ'をどうぞ！",
+        ]
+        reply = random.choice(replies)
+
     reply_message(reply_token, reply)
 
 # ===== サーバー =====
@@ -298,5 +294,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     t = threading.Thread(target=schedule_checker, daemon=True)
     t.start()
-    print(f"🌾 シオン秘書（AI搭載）起動！ (ポート: {port})")
+    print(f"🌾 シオン秘書 起動！ (ポート: {port})")
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
