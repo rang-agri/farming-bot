@@ -19,18 +19,18 @@ def get_weather():
         area_forecasts = data[0]["timeSeries"][0]["areas"]
         weather_text = "不明"
         for area in area_forecasts:
-            if area["area"]["name"] == "青森":
+            if area["area"]["name"] == "津軽":
                 weather_text = area["weathers"][0].replace("\u3000", " ").strip()
                 break
         temp_series = data[0]["timeSeries"][2]["areas"]
         temp_text = ""
         for area in temp_series:
-            if area["area"]["name"] == "青森":
+            if area["area"]["name"] == "弘前":
                 temps = area.get("temps", [])
                 if len(temps) >= 2:
                     temp_text = f"最低{temps[0]}°C / 最高{temps[1]}°C"
                 break
-        return f"🌤 青森の天気: {weather_text}\n🌡 {temp_text}"
+        return f"🌤 藤崎町の天気: {weather_text}\n🌡 {temp_text}"
     except:
         return "🌤 天気情報を取得できませんでした"
 
