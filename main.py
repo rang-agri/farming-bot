@@ -3,7 +3,7 @@ import json
 import urllib.request
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import threading
 import random
 
@@ -173,7 +173,7 @@ def schedule_checker():
     last_morning = None
     last_evening = None
     while True:
-        now = datetime.now()
+        now = datetime.now(timezone(timedelta(hours=9)))
         hour = now.hour
         minute = now.minute
         today = now.date()
